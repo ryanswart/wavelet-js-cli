@@ -2,7 +2,7 @@
 const React = require("react");
 const PropTypes = require("prop-types");
 const { Text, Color, Box } = require("ink");
-const { useWavelet, useAccount } = require("react-use-wavelet");
+const { useWavelet, useAccount, useContract } = require("react-use-wavelet");
 const { Wavelet } = require("wavelet-client");
 const { BigInt } = require("jsbi");
 const fs = require("fs");
@@ -10,13 +10,59 @@ const fs = require("fs");
 const App = ({
   pk,
   deploy,
+  call,
+  test,
+  contractAddress,
+  params,
   gasLimit,
   gasDeposit,
   host = "https://testnet.perlin.net",
   gen
 }) => {
-
   if (pk) {
+    if (test) {
+      const wallet = Wavelet.loadWalletFromPrivateKey(pk);
+      return (
+        <WithClient host={host}>
+          {({ client }) => (
+            <WithContract client={client} address={contractAddress}>
+              {({ contract }) => (
+                <Test
+                  wallet={wallet}
+                  client={client}
+                  contract={contract}
+                  fn={test}
+                  gasLimit={gasLimit}
+                  params={params}
+                />
+              )}
+            </WithContract>
+          )}
+        </WithClient>
+      );
+    }
+    if (call) {
+      const wallet = Wavelet.loadWalletFromPrivateKey(pk);
+      return (
+        <WithClient host={host}>
+          {({ client }) => (
+            <WithContract client={client} address={contractAddress}>
+              {({ contract }) => (
+                <Call
+                  wallet={wallet}
+                  client={client}
+                  contract={contract}
+                  fn={call}
+                  gasLimit={gasLimit}
+                  gasDeposit={gasDeposit}
+                  params={params}
+                />
+              )}
+            </WithContract>
+          )}
+        </WithClient>
+      );
+    }
     if (deploy) {
       const wallet = Wavelet.loadWalletFromPrivateKey(pk);
       return (
@@ -56,7 +102,71 @@ const AccountDetails = ({ account }) => {
   );
 };
 
-// const Call = ({ client, contract,  })
+const Call = ({
+  client,
+  contract,
+  fn,
+  params,
+  wallet,
+  gasLimit,
+  gasDeposit
+}) => {
+  const [res, setRes] = React.useState();
+  React.useEffect(() => {
+    contract
+      .call(
+        wallet,
+        fn,
+        BigInt(gasLimit),
+        BigInt(gasLimit),
+        BigInt(gasDeposit),
+        params && JSON.parse(params)
+      )
+      .then(setRes);
+  }, [client, wallet]);
+
+  if (!res) {
+    return <Text>Calling...</Text>;
+  }
+  return <Text>Called with tx {res.tx_id}</Text>;
+};
+
+const Test = ({ client, contract, fn, params, wallet, gasLimit }) => {
+  console.log("params", params);
+  const [res, setRes] = React.useState();
+  React.useEffect(() => {
+    if(contract){
+      setRes(
+        contract.test(
+          wallet,
+          fn,
+          BigInt(0),
+          BigInt(gasLimit),
+          //params && JSON.parse(params)
+        )
+      );
+    }
+  }, [contract, wallet]);
+
+  if (!res) {
+    return <Text>Testing...</Text>;
+  }
+  // res.logs.map((x) => console.log(x))
+  // console.log(res.logs)
+  return (
+    <Text>
+      {JSON.stringify(res.logs)}
+      {/* Logs:{" "} */}
+      {/* {res.logs.map((x, i) => ( */}
+      {/*   <Box> */}
+      {/*   <Text> */}
+      {/*     {i}\n{x} */}
+      {/*   </Text> */}
+      {/*   </Box> */}
+      {/* ))} */}
+    </Text>
+  );
+};
 
 const Deploy = ({ client, wallet, path, gasLimit, gasDeposit = 0 }) => {
   const file = fs.readFileSync(path);
@@ -82,6 +192,18 @@ const WithClient = ({ host, children }) => {
     return <Text>Loading....</Text>;
   }
   return children({ client, clientErr });
+};
+
+const WithContract = ({ client, address, children }) => {
+  const [contract, contractErr] = useContract(client, address);
+
+  if (contractErr) {
+    return <Text>Error loading contract: {contractErr.toString()}</Text>;
+  }
+  if (!contract) {
+    return <Text>Loading....</Text>;
+  }
+  return children({ contract });
 };
 
 const WithAccount = ({ client, privateKey, children }) => {
